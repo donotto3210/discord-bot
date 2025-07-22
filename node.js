@@ -1,7 +1,12 @@
-// Install required packages: npm install discord.js dotenv
+// Run: npm install discord.js dotenv fs
+
 const { Client, GatewayIntentBits, Partials, PermissionsBitField, SlashCommandBuilder, REST, Routes } = require('discord.js');
 const fs = require('fs');
 require('dotenv').config();
+
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
 
 const client = new Client({
   intents: [
@@ -14,7 +19,6 @@ const client = new Client({
 });
 
 const LOG_FILE = 'logs.json';
-const GUILD_ID = '1396270596383313980'; // Replace with your server ID
 
 // Load or create logs file
 let logs = fs.existsSync(LOG_FILE) ? JSON.parse(fs.readFileSync(LOG_FILE)) : {};
@@ -31,106 +35,113 @@ function logAction(userId, action, reason, moderator) {
   saveLogs();
 }
 
-client.once('ready', async () => {
-  console.log(`✅ RoSecurity bot is online as ${client.user.tag}`);
+// Define commands
+const commands = [
+  new SlashCommandBuilder()
+    .setName('securitylogs')
+    .setDescription('View logs for a user')
+    .addUserOption(option =>
+      option.setName('user')
+        .setDescription('User to view logs for')
+        .setRequired(true)),
 
-  // Define all slash commands
-  const commands = [
-    new SlashCommandBuilder()
-      .setName('securitylogs')
-      .setDescription('View logs for a user')
-      .addUserOption(option =>
-        option.setName('user')
-          .setDescription('User to view logs for')
-          .setRequired(true)),
-    
-    new SlashCommandBuilder()
-      .setName('ban')
-      .setDescription('Ban a user')
-      .addUserOption(option =>
-        option.setName('user')
-          .setDescription('User to ban')
-          .setRequired(true))
-      .addStringOption(option =>
-        option.setName('reason')
-          .setDescription('Reason for ban')
-          .setRequired(false)),
-    
-    new SlashCommandBuilder()
-      .setName('kick')
-      .setDescription('Kick a user')
-      .addUserOption(option =>
-        option.setName('user')
-          .setDescription('User to kick')
-          .setRequired(true))
-      .addStringOption(option =>
-        option.setName('reason')
-          .setDescription('Reason for kick')
-          .setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('ban')
+    .setDescription('Ban a user')
+    .addUserOption(option =>
+      option.setName('user')
+        .setDescription('User to ban')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('reason')
+        .setDescription('Reason for ban')
+        .setRequired(false)),
 
-    new SlashCommandBuilder()
-      .setName('mute')
-      .setDescription('Mute a user for 10 minutes')
-      .addUserOption(option =>
-        option.setName('user')
-          .setDescription('User to mute')
-          .setRequired(true))
-      .addStringOption(option =>
-        option.setName('reason')
-          .setDescription('Reason for mute')
-          .setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('kick')
+    .setDescription('Kick a user')
+    .addUserOption(option =>
+      option.setName('user')
+        .setDescription('User to kick')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('reason')
+        .setDescription('Reason for kick')
+        .setRequired(false)),
 
-    new SlashCommandBuilder()
-      .setName('warn')
-      .setDescription('Warn a user')
-      .addUserOption(option =>
-        option.setName('user')
-          .setDescription('User to warn')
-          .setRequired(true))
-      .addStringOption(option =>
-        option.setName('reason')
-          .setDescription('Reason for warning')
-          .setRequired(false)),
+  new SlashCommandBuilder()
+    .setName('mute')
+    .setDescription('Mute a user for 10 minutes')
+    .addUserOption(option =>
+      option.setName('user')
+        .setDescription('User to mute')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('reason')
+        .setDescription('Reason for mute')
+        .setRequired(false)),
 
-    new SlashCommandBuilder()
-      .setName('raidlock')
-      .setDescription('Enable raid lock on the server'),
+  new SlashCommandBuilder()
+    .setName('warn')
+    .setDescription('Warn a user')
+    .addUserOption(option =>
+      option.setName('user')
+        .setDescription('User to warn')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('reason')
+        .setDescription('Reason for warning')
+        .setRequired(false)),
 
-    new SlashCommandBuilder()
-      .setName('massban')
-      .setDescription('Ban multiple users by IDs')
-      .addStringOption(option =>
-        option.setName('ids')
-          .setDescription('Comma separated user IDs to ban')
-          .setRequired(true)),
-  ].map(cmd => cmd.toJSON());
+  new SlashCommandBuilder()
+    .setName('raidlock')
+    .setDescription('Enable raid lock on the server'),
 
-  // Register commands to your guild (instant update)
-  const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+  new SlashCommandBuilder()
+    .setName('massban')
+    .setDescription('Ban multiple users by IDs')
+    .addStringOption(option =>
+      option.setName('ids')
+        .setDescription('Comma separated user IDs to ban')
+        .setRequired(true)),
+].map(cmd => cmd.toJSON());
+
+// Register commands function
+async function registerCommands() {
+  const rest = new REST({ version: '10' }).setToken(TOKEN);
   try {
+    console.log('Registering slash commands...');
     await rest.put(
-      Routes.applicationGuildCommands(client.user.id, GUILD_ID),
+      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
     );
     console.log('Slash commands registered successfully.');
   } catch (error) {
     console.error('Error registering slash commands:', error);
   }
+}
+
+client.once('ready', () => {
+  console.log(`Logged in as ${client.user.tag}`);
+  registerCommands();
 });
 
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   const member = interaction.member;
-  // Check mod permissions for all commands except securitylogs and raidlock
+  const commandName = interaction.commandName;
+
+  // Mod-only commands list
   const modOnlyCommands = ['ban', 'kick', 'mute', 'warn', 'massban', 'raidlock'];
-  if (modOnlyCommands.includes(interaction.commandName)) {
+
+  if (modOnlyCommands.includes(commandName)) {
     if (!member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
       return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
     }
   }
 
-  switch (interaction.commandName) {
+  switch (commandName) {
     case 'securitylogs': {
       const user = interaction.options.getUser('user');
       const data = logs[user.id] || [];
@@ -146,7 +157,7 @@ client.on('interactionCreate', async interaction => {
     case 'ban': {
       const user = interaction.options.getUser('user');
       const reason = interaction.options.getString('reason') || 'No reason';
-      const memberToBan = interaction.guild.members.cache.get(user.id);
+      const memberToBan = await interaction.guild.members.fetch(user.id).catch(() => null);
       if (!memberToBan) return interaction.reply({ content: 'User not found in guild.', ephemeral: true });
       try {
         await memberToBan.ban({ reason });
@@ -160,7 +171,7 @@ client.on('interactionCreate', async interaction => {
     case 'kick': {
       const user = interaction.options.getUser('user');
       const reason = interaction.options.getString('reason') || 'No reason';
-      const memberToKick = interaction.guild.members.cache.get(user.id);
+      const memberToKick = await interaction.guild.members.fetch(user.id).catch(() => null);
       if (!memberToKick) return interaction.reply({ content: 'User not found in guild.', ephemeral: true });
       try {
         await memberToKick.kick(reason);
@@ -174,7 +185,7 @@ client.on('interactionCreate', async interaction => {
     case 'mute': {
       const user = interaction.options.getUser('user');
       const reason = interaction.options.getString('reason') || 'No reason';
-      const memberToMute = interaction.guild.members.cache.get(user.id);
+      const memberToMute = await interaction.guild.members.fetch(user.id).catch(() => null);
       if (!memberToMute) return interaction.reply({ content: 'User not found in guild.', ephemeral: true });
       try {
         await memberToMute.timeout(10 * 60 * 1000, reason);
@@ -224,6 +235,9 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ content: 'Unknown command.', ephemeral: true });
   }
 });
+
+client.login(TOKEN);
+
 
 client.login(process.env.TOKEN);
 
