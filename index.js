@@ -241,15 +241,3 @@ client.login(TOKEN);
 
 client.login(process.env.TOKEN);
 
-const express = require('express');
-const app = express();
-
-app.get('/', (req, res) => {
-  res.send('Bot is online!');
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🌐 Uptime server running on port ${PORT}`);
-});
-
