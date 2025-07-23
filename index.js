@@ -64,8 +64,9 @@ const commands = [
   new SlashCommandBuilder().setName('raidlock').setDescription('Toggle raid lock')
     .addStringOption(opt => opt.setName('state').setDescription('on or off').setRequired(true)),
 
-  new SlashCommandBuilder().setName('scammer').setDescription('Mark user as scammer')
-    .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true)),
+ new SlashCommandBuilder().setName('scammer').setDescription('Mark user as scammer')
+  .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true))
+  .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true)),
 
   new SlashCommandBuilder().setName('securitylogs').setDescription('View security logs')
     .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true)),
@@ -194,11 +195,25 @@ client.on('interactionCreate', async interaction => {
     await interaction.reply(`🛡️ Raid lock ${state === 'on' ? 'enabled' : 'disabled'}.`);
   }
 
-  else if (commandName === 'scammer') {
-    const user = options.getUser('user');
-    logAction(user.id, 'Scammer Marked', 'User marked as scammer', member.user.tag);
-    await interaction.reply(`⚠️ ${user.tag} marked as a scammer.`);
+else if (commandName === 'scammer') {
+  const user = options.getUser('user');
+  const reason = options.getString('reason');
+  logAction(user.id, 'Scammer Marked', reason, member.user.tag);
+  sendDM(user, `⚠️ You were marked as a scammer in ${guild.name}: ${reason}`);
+
+  const alertEmbed = new EmbedBuilder()
+    .setTitle('⚠️ Scammer Alert @everyone')
+    .setDescription(`${user} has been marked as a scammer.\n**Reason:** ${reason}`)
+    .setColor('Red')
+    .setTimestamp();
+
+  const channel = await client.channels.fetch('1397699589653663834');
+  if (channel && channel.isTextBased()) {
+    channel.send({ content: '@everyone', embeds: [alertEmbed] });
   }
+
+  await interaction.reply(`⚠️ ${user.tag} marked as a scammer with reason: ${reason}`);
+}
 
   else if (commandName === 'securitylogs') {
     const user = options.getUser('user');
