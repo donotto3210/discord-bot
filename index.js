@@ -1,230 +1,292 @@
-// Run: npm install discord.js dotenv fs
-
-const { 
-  Client, GatewayIntentBits, Partials, PermissionsBitField, 
-  SlashCommandBuilder, REST, Routes 
-} = require('discord.js');
+// Required packages
+const { Client, GatewayIntentBits, Partials, SlashCommandBuilder, REST, Routes, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 require('dotenv').config();
+
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers],
+  partials: [Partials.Channel]
+});
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
-  ],
-  partials: [Partials.Channel]
-});
-
 const LOG_FILE = 'logs.json';
+const ALLY_FILE = 'alliances.json';
+
 let logs = fs.existsSync(LOG_FILE) ? JSON.parse(fs.readFileSync(LOG_FILE)) : {};
-function saveLogs() { fs.writeFileSync(LOG_FILE, JSON.stringify(logs, null, 2)); }
+let allies = fs.existsSync(ALLY_FILE) ? JSON.parse(fs.readFileSync(ALLY_FILE)) : [];
+
+function saveLogs() {
+  fs.writeFileSync(LOG_FILE, JSON.stringify(logs, null, 2));
+}
+function saveAllies() {
+  fs.writeFileSync(ALLY_FILE, JSON.stringify(allies, null, 2));
+}
+function isMod(member) {
+  return member.roles.cache.some(role => role.name === 'Mod');
+}
 function logAction(userId, action, reason, moderator) {
   if (!logs[userId]) logs[userId] = [];
   logs[userId].push({ action, reason, moderator, date: new Date().toISOString() });
   saveLogs();
 }
 
+// Command setup
 const commands = [
-  new SlashCommandBuilder().setName('securitylogs').setDescription('View logs for a user')
-    .addUserOption(opt => opt.setName('user').setDescription('User to view logs').setRequired(true)),
-  new SlashCommandBuilder().setName('ban').setDescription('Ban a user')
-    .addUserOption(opt => opt.setName('user').setDescription('User to ban').setRequired(true))
-    .addStringOption(opt => opt.setName('reason').setDescription('Reason for ban')),
-  new SlashCommandBuilder().setName('kick').setDescription('Kick a user')
-    .addUserOption(opt => opt.setName('user').setDescription('User to kick').setRequired(true))
-    .addStringOption(opt => opt.setName('reason').setDescription('Reason for kick')),
-  new SlashCommandBuilder().setName('mute').setDescription('Mute a user for a duration')
-    .addUserOption(opt => opt.setName('user').setDescription('User to mute').setRequired(true))
-    .addIntegerOption(opt => opt.setName('duration').setDescription('Duration in minutes').setRequired(true))
-    .addStringOption(opt => opt.setName('reason').setDescription('Reason for mute')),
   new SlashCommandBuilder().setName('warn').setDescription('Warn a user')
     .addUserOption(opt => opt.setName('user').setDescription('User to warn').setRequired(true))
-    .addStringOption(opt => opt.setName('reason').setDescription('Reason for warning')),
-  new SlashCommandBuilder().setName('raidlock').setDescription('Enable raid lock on the server'),
-  new SlashCommandBuilder().setName('massban').setDescription('Ban multiple users by IDs')
-    .addStringOption(opt => opt.setName('ids').setDescription('Comma separated IDs').setRequired(true)),
-  new SlashCommandBuilder().setName('clearlogs').setDescription('Clear logs for a user')
-    .addUserOption(opt => opt.setName('user').setDescription('User to clear logs').setRequired(true)),
-  new SlashCommandBuilder().setName('dm').setDescription('Send DM to a user')
-    .addUserOption(opt => opt.setName('user').setDescription('User to DM').setRequired(true))
-    .addStringOption(opt => opt.setName('message').setDescription('Message to send').setRequired(true)),
-  new SlashCommandBuilder().setName('recordscreate').setDescription('Create a manual record')
-    .addStringOption(opt => opt.setName('id').setDescription('User ID').setRequired(true))
-    .addStringOption(opt => opt.setName('action').setDescription('Action (e.g. Warn)').setRequired(true))
     .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true)),
-  new SlashCommandBuilder().setName('recordscheck').setDescription('Check logs by user ID')
-    .addStringOption(opt => opt.setName('id').setDescription('User ID').setRequired(true)),
-  new SlashCommandBuilder().setName('recordsdelete').setDescription('Delete logs for user ID')
-    .addStringOption(opt => opt.setName('id').setDescription('User ID').setRequired(true)),
-  new SlashCommandBuilder().setName('checkid').setDescription('Get user by ID')
-    .addStringOption(opt => opt.setName('id').setDescription('User ID').setRequired(true)),
-  new SlashCommandBuilder().setName('checkuser').setDescription('Get ID from user')
+    
+  new SlashCommandBuilder().setName('unwarn').setDescription('Remove all warnings from user')
     .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true)),
+
+  new SlashCommandBuilder().setName('mute').setDescription('Mute a user')
+    .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true))
+    .addIntegerOption(opt => opt.setName('minutes').setDescription('Time to mute (minutes)').setRequired(true))
+    .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true)),
+
+  new SlashCommandBuilder().setName('unmute').setDescription('Unmute a user')
+    .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true)),
+
+  new SlashCommandBuilder().setName('ban').setDescription('Ban a user')
+    .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true))
+    .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true)),
+
+  new SlashCommandBuilder().setName('unban').setDescription('Unban a user')
+    .addStringOption(opt => opt.setName('userid').setDescription('User ID to unban').setRequired(true)),
+
+  new SlashCommandBuilder().setName('kick').setDescription('Kick a user')
+    .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true))
+    .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true)),
+
+  new SlashCommandBuilder().setName('raidlock').setDescription('Toggle raid lock')
+    .addStringOption(opt => opt.setName('state').setDescription('on or off').setRequired(true)),
+
+  new SlashCommandBuilder().setName('scammer').setDescription('Mark user as scammer')
+    .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true)),
+
+  new SlashCommandBuilder().setName('securitylogs').setDescription('View security logs')
+    .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true)),
+
+  new SlashCommandBuilder().setName('clearlogs').setDescription('Clear all logs')
+    .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true)),
+
+  new SlashCommandBuilder().setName('record').setDescription('Create custom record')
+    .addStringOption(opt => opt.setName('userid').setDescription('User ID').setRequired(true))
+    .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true)),
+
+  new SlashCommandBuilder().setName('recordcheck').setDescription('Check user record')
+    .addStringOption(opt => opt.setName('userid').setDescription('User ID').setRequired(true)),
+
+  new SlashCommandBuilder().setName('recorddelete').setDescription('Delete user record')
+    .addStringOption(opt => opt.setName('userid').setDescription('User ID').setRequired(true)),
+
+  new SlashCommandBuilder().setName('checkuser').setDescription('Get user ID')
+    .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true)),
+
+  new SlashCommandBuilder().setName('checkid').setDescription('Check ID to get user info')
+    .addStringOption(opt => opt.setName('id').setDescription('User ID').setRequired(true)),
+
+  new SlashCommandBuilder().setName('ally').setDescription('Create an alliance')
+    .addStringOption(opt => opt.setName('serverid').setDescription('Server ID').setRequired(true)),
+
+  new SlashCommandBuilder().setName('allydelete').setDescription('Delete an alliance')
+    .addStringOption(opt => opt.setName('serverid').setDescription('Server ID').setRequired(true)),
+
+  new SlashCommandBuilder().setName('alliancecheck').setDescription('Check all alliances'),
+
+  new SlashCommandBuilder().setName('allynotify').setDescription('DM ally server owner')
+    .addStringOption(opt => opt.setName('serverid').setDescription('Server ID').setRequired(true))
+    .addStringOption(opt => opt.setName('message').setDescription('Message').setRequired(true))
 ].map(cmd => cmd.toJSON());
 
-async function registerCommands() {
-  const rest = new REST({ version: '10' }).setToken(TOKEN);
+const rest = new REST({ version: '10' }).setToken(TOKEN);
+(async () => {
   try {
-    console.log('Registering slash commands...');
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
-    console.log('Commands registered.');
-  } catch (e) {
-    console.error('Command registration failed:', e);
+    console.log('✅ Slash commands registered.');
+  } catch (err) {
+    console.error(err);
   }
-}
-
-client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
-  registerCommands();
-});
+})();
 
 client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
+  if (!interaction.isCommand()) return;
+  const { commandName, options, member, guild } = interaction;
+  if (!isMod(member)) return interaction.reply({ content: 'Only users with the **Mod** role can use this.', ephemeral: true });
 
-  const { commandName, options, user, member, guild } = interaction;
-  const modCommands = ['ban', 'kick', 'mute', 'warn', 'massban', 'raidlock', 'clearlogs', 'dm', 'recordscreate', 'recordsdelete'];
+  const sendDM = async (user, content) => {
+    try {
+      await user.send(content);
+    } catch {
+      console.warn(`Could not DM ${user.tag}`);
+    }
+  };
 
-  if (modCommands.includes(commandName)) {
-    if (!member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
-      return interaction.reply({ content: '🚫 You do not have permission.', ephemeral: true });
+  // === Add command handlers here ===
+  if (commandName === 'warn') {
+    const user = options.getUser('user');
+    const reason = options.getString('reason');
+    logAction(user.id, 'Warn', reason, member.user.tag);
+    sendDM(user, `⚠️ You were warned in ${guild.name}: ${reason}`);
+    await interaction.reply(`Warned ${user.tag} for: ${reason}`);
+  }
+
+  else if (commandName === 'unwarn') {
+    const user = options.getUser('user');
+    logs[user.id] = [];
+    saveLogs();
+    await interaction.reply(`✅ Cleared all warnings for ${user.tag}`);
+  }
+
+  else if (commandName === 'mute') {
+    const user = options.getUser('user');
+    const reason = options.getString('reason');
+    const time = options.getInteger('minutes');
+    const muteRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'muted');
+    const memberToMute = await guild.members.fetch(user.id);
+    await memberToMute.roles.add(muteRole);
+    sendDM(user, `🔇 You were muted for ${time} minutes in ${guild.name}: ${reason}`);
+    logAction(user.id, 'Mute', `${reason} (${time}m)`, member.user.tag);
+    setTimeout(() => memberToMute.roles.remove(muteRole), time * 60000);
+    await interaction.reply(`✅ Muted ${user.tag} for ${time}m`);
+  }
+
+  else if (commandName === 'unmute') {
+    const user = options.getUser('user');
+    const memberToUnmute = await guild.members.fetch(user.id);
+    const muteRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'muted');
+    await memberToUnmute.roles.remove(muteRole);
+    await interaction.reply(`🔊 Unmuted ${user.tag}`);
+  }
+
+  else if (commandName === 'kick') {
+    const user = options.getUser('user');
+    const reason = options.getString('reason');
+    const memberToKick = await guild.members.fetch(user.id);
+    sendDM(user, `👢 You were kicked from ${guild.name}: ${reason}`);
+    await memberToKick.kick(reason);
+    logAction(user.id, 'Kick', reason, member.user.tag);
+    await interaction.reply(`✅ Kicked ${user.tag}`);
+  }
+
+  else if (commandName === 'ban') {
+    const user = options.getUser('user');
+    const reason = options.getString('reason');
+    sendDM(user, `🚫 You were banned from ${guild.name}: ${reason}`);
+    await guild.members.ban(user.id, { reason });
+    logAction(user.id, 'Ban', reason, member.user.tag);
+    await interaction.reply(`✅ Banned ${user.tag}`);
+  }
+
+  else if (commandName === 'unban') {
+    const userId = options.getString('userid');
+    await guild.members.unban(userId);
+    await interaction.reply(`🔓 Unbanned user ID: ${userId}`);
+  }
+
+  else if (commandName === 'raidlock') {
+    const state = options.getString('state');
+    const perms = state === 'on' ? [] : [GatewayIntentBits.SendMessages];
+    guild.channels.cache.forEach(ch => ch.permissionOverwrites.create(guild.roles.everyone, { SendMessages: state !== 'on' }));
+    await interaction.reply(`🛡️ Raid lock ${state === 'on' ? 'enabled' : 'disabled'}.`);
+  }
+
+  else if (commandName === 'scammer') {
+    const user = options.getUser('user');
+    logAction(user.id, 'Scammer Marked', 'User marked as scammer', member.user.tag);
+    await interaction.reply(`⚠️ ${user.tag} marked as a scammer.`);
+  }
+
+  else if (commandName === 'securitylogs') {
+    const user = options.getUser('user');
+    const data = logs[user.id] || [];
+    const embed = new EmbedBuilder().setTitle(`Logs for ${user.tag}`).setColor('Red');
+    data.forEach(log => embed.addFields({ name: log.action, value: `**By:** ${log.moderator}\n**Reason:** ${log.reason}\n**Date:** ${log.date}` }));
+    await interaction.reply({ embeds: [embed] });
+  }
+
+  else if (commandName === 'clearlogs') {
+    const user = options.getUser('user');
+    logs[user.id] = [];
+    saveLogs();
+    await interaction.reply(`🧹 Cleared logs for ${user.tag}`);
+  }
+
+  else if (commandName === 'record') {
+    const id = options.getString('userid');
+    const reason = options.getString('reason');
+    logAction(id, 'Manual Record', reason, member.user.tag);
+    await interaction.reply(`📝 Record created for ID ${id}`);
+  }
+
+  else if (commandName === 'recordcheck') {
+    const id = options.getString('userid');
+    const data = logs[id] || [];
+    const embed = new EmbedBuilder().setTitle(`Records for ID ${id}`).setColor('Blue');
+    data.forEach(log => embed.addFields({ name: log.action, value: `${log.reason} (by ${log.moderator})` }));
+    await interaction.reply({ embeds: [embed] });
+  }
+
+  else if (commandName === 'recorddelete') {
+    const id = options.getString('userid');
+    logs[id] = [];
+    saveLogs();
+    await interaction.reply(`🗑️ Deleted records for ID ${id}`);
+  }
+
+  else if (commandName === 'checkuser') {
+    const user = options.getUser('user');
+    await interaction.reply(`🆔 User ID: ${user.id}`);
+  }
+
+  else if (commandName === 'checkid') {
+    const id = options.getString('id');
+    try {
+      const user = await client.users.fetch(id);
+      await interaction.reply(`👤 User: ${user.tag}`);
+    } catch {
+      await interaction.reply(`❌ No user found with that ID`);
     }
   }
 
-  try {
-    switch (commandName) {
-      case 'securitylogs': {
-        const target = options.getUser('user');
-        const data = logs[target.id] || [];
-        if (!data.length) return interaction.reply({ content: `No logs for ${target.tag}`, ephemeral: true });
-        const msg = data.map((log, i) => `**${i+1}.** [${log.date}] - **${log.action}** by ${log.moderator} — ${log.reason}`).join('\n');
-        return interaction.reply({ content: `Logs for **${target.tag}**:\n${msg}`, ephemeral: true });
-      }
-
-      case 'ban': {
-        const target = options.getUser('user');
-        const reason = options.getString('reason') || 'No reason';
-        const memberToBan = await guild.members.fetch(target.id).catch(() => null);
-        if (!memberToBan) return interaction.reply({ content: 'User not in server.', ephemeral: true });
-        await memberToBan.send(`You were **banned** from ${guild.name}. Reason: ${reason}`).catch(() => {});
-        await memberToBan.ban({ reason });
-        logAction(target.id, 'Ban', reason, user.tag);
-        return interaction.reply(`${target.tag} was banned.`);
-      }
-
-      case 'kick': {
-        const target = options.getUser('user');
-        const reason = options.getString('reason') || 'No reason';
-        const memberToKick = await guild.members.fetch(target.id).catch(() => null);
-        if (!memberToKick) return interaction.reply({ content: 'User not in server.', ephemeral: true });
-        await memberToKick.send(`You were **kicked** from ${guild.name}. Reason: ${reason}`).catch(() => {});
-        await memberToKick.kick(reason);
-        logAction(target.id, 'Kick', reason, user.tag);
-        return interaction.reply(`${target.tag} was kicked.`);
-      }
-
-      case 'mute': {
-        const target = options.getUser('user');
-        const duration = options.getInteger('duration');
-        const reason = options.getString('reason') || 'No reason';
-        const memberToMute = await guild.members.fetch(target.id).catch(() => null);
-        if (!memberToMute) return interaction.reply({ content: 'User not in server.', ephemeral: true });
-        await memberToMute.timeout(duration * 60000, reason);
-        await target.send(`You were **muted** for ${duration} minutes. Reason: ${reason}`).catch(() => {});
-        logAction(target.id, `Mute (${duration}m)`, reason, user.tag);
-        return interaction.reply(`${target.tag} was muted for ${duration} minutes.`);
-      }
-
-      case 'warn': {
-        const target = options.getUser('user');
-        const reason = options.getString('reason') || 'No reason';
-        await target.send(`You were **warned** in ${guild.name}. Reason: ${reason}`).catch(() => {});
-        logAction(target.id, 'Warn', reason, user.tag);
-        return interaction.reply(`${target.tag} was warned.`);
-      }
-
-      case 'raidlock': {
-        const channels = guild.channels.cache.filter(ch => ch.isTextBased());
-        await Promise.all(channels.map(ch => ch.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: false })));
-        return interaction.reply('🔒 Server is now in raid lock.');
-      }
-
-      case 'massban': {
-        const ids = options.getString('ids').split(',').map(id => id.trim());
-        let success = 0, fail = 0;
-        for (const id of ids) {
-          try {
-            await guild.members.ban(id, { reason: `Massban by ${user.tag}` });
-            logAction(id, 'Massban', 'Massban command', user.tag);
-            success++;
-          } catch { fail++; }
-        }
-        return interaction.reply(`Banned ${success}/${ids.length} users.`);
-      }
-
-      case 'clearlogs': {
-        const target = options.getUser('user');
-        delete logs[target.id];
-        saveLogs();
-        return interaction.reply(`🧹 Logs for ${target.tag} cleared.`);
-      }
-
-      case 'dm': {
-        const target = options.getUser('user');
-        const message = options.getString('message');
-        await target.send(message).catch(() => {
-          return interaction.reply({ content: '❌ Failed to DM user.', ephemeral: true });
-        });
-        return interaction.reply(`📩 DM sent to ${target.tag}`);
-      }
-
-      case 'recordscreate': {
-        const id = options.getString('id');
-        const action = options.getString('action');
-        const reason = options.getString('reason');
-        logAction(id, action, reason, user.tag);
-        return interaction.reply(`✅ Record for ${id} created.`);
-      }
-
-      case 'recordscheck': {
-        const id = options.getString('id');
-        const data = logs[id] || [];
-        if (!data.length) return interaction.reply({ content: 'No logs for that ID.', ephemeral: true });
-        const msg = data.map((log, i) => `**${i+1}.** [${log.date}] - **${log.action}** by ${log.moderator} — ${log.reason}`).join('\n');
-        return interaction.reply({ content: `Logs for **${id}**:\n${msg}`, ephemeral: true });
-      }
-
-      case 'recordsdelete': {
-        const id = options.getString('id');
-        delete logs[id];
-        saveLogs();
-        return interaction.reply(`🧹 Logs for ${id} deleted.`);
-      }
-
-      case 'checkid': {
-        const id = options.getString('id');
-        try {
-          const target = await client.users.fetch(id);
-          return interaction.reply(`User: **${target.tag}**`);
-        } catch {
-          return interaction.reply({ content: '❌ Could not find user.', ephemeral: true });
-        }
-      }
-
-      case 'checkuser': {
-        const target = options.getUser('user');
-        return interaction.reply(`User ID: **${target.id}**`);
-      }
-    }
-  } catch (e) {
-    console.error(e);
-    return interaction.reply({ content: '❌ Error executing command.', ephemeral: true });
+  else if (commandName === 'ally') {
+    const serverId = options.getString('serverid');
+    if (!allies.includes(serverId)) allies.push(serverId);
+    saveAllies();
+    await interaction.reply(`🤝 Alliance created with server ID: ${serverId}`);
   }
+
+  else if (commandName === 'allydelete') {
+    const serverId = options.getString('serverid');
+    allies = allies.filter(id => id !== serverId);
+    saveAllies();
+    await interaction.reply(`❌ Alliance deleted with server ID: ${serverId}`);
+  }
+
+  else if (commandName === 'alliancecheck') {
+    await interaction.reply(`📋 Current alliances:\n${allies.join('\n') || 'None'}`);
+  }
+
+  else if (commandName === 'allynotify') {
+    const serverId = options.getString('serverid');
+    const msg = options.getString('message');
+    try {
+      const allyGuild = await client.guilds.fetch(serverId);
+      const owner = await allyGuild.fetchOwner();
+      await owner.send(`📢 **Ally Notification from ${guild.name}**:\n${msg}`);
+      await interaction.reply(`✅ Notification sent to ${owner.user.tag}`);
+    } catch (err) {
+      console.error(err);
+      await interaction.reply(`❌ Could not send message to ally server owner.`);
+    }
+  }
+});
+
+client.once('ready', () => {
+  console.log(`Bot ready as ${client.user.tag}`);
 });
 
 client.login(TOKEN);
