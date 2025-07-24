@@ -101,11 +101,6 @@ const commands = [
   new SlashCommandBuilder().setName('allynotify').setDescription('DM ally server owner')
     .addStringOption(opt => opt.setName('serverid').setDescription('Server ID').setRequired(true))
     .addStringOption(opt => opt.setName('message').setDescription('Message').setRequired(true))
-
-  new SlashCommandBuilder().setName('dm').setDescription('Send a private message to a user')
-  .addUserOption(opt => opt.setName('user').setDescription('User to DM').setRequired(true))
-  .addStringOption(opt => opt.setName('message').setDescription('Message to send').setRequired(true)),
-
 ].map(cmd => cmd.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -316,19 +311,6 @@ else if (commandName === 'record') {
       await interaction.reply(`❌ Could not send message to ally server owner.`);
     }
   }
-
-  else if (commandName === 'dm') {
-  const user = options.getUser('user');
-  const message = options.getString('message');
-
-  try {
-    await user.send(`📩 Message from **${guild.name}**:\n${message}`);
-    await interaction.reply(`✅ Message sent to ${user.tag}`);
-  } catch {
-    await interaction.reply(`❌ Could not send DM to ${user.tag}. They may have DMs disabled.`);
-  }
-}
-  
 });
 
 client.once('ready', () => {
