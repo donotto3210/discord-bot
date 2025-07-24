@@ -328,6 +328,7 @@ else if (commandName === 'record') {
     await interaction.reply(`❌ Could not send DM to ${user.tag}. They may have DMs disabled.`);
   }
 }
+  
 });
 
 client.once('ready', () => {
