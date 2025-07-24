@@ -230,12 +230,25 @@ else if (commandName === 'scammer') {
     await interaction.reply(`🧹 Cleared logs for ${user.tag}`);
   }
 
-  else if (commandName === 'record') {
-    const id = options.getString('userid');
-    const reason = options.getString('reason');
-    logAction(id, 'Manual Record', reason, member.user.tag);
-    await interaction.reply(`📝 Record created for ID ${id}`);
+else if (commandName === 'record') {
+  const id = options.getString('userid');
+  const reason = options.getString('reason');
+  logAction(id, 'Manual Record', reason, member.user.tag);
+
+  // Create and send embed to logging channel
+  const recordEmbed = new EmbedBuilder()
+    .setTitle('📘 New Manual Record')
+    .setDescription(`User ID: \`${id}\`\n**Reason:** ${reason}\n**Moderator:** ${member.user.tag}`)
+    .setColor('Blue')
+    .setTimestamp();
+
+  const channel = await client.channels.fetch('1397699589653663834');
+  if (channel && channel.isTextBased()) {
+    channel.send({ embeds: [recordEmbed] });
   }
+
+  await interaction.reply(`📝 Record created for ID ${id}`);
+}
 
   else if (commandName === 'recordcheck') {
     const id = options.getString('userid');
