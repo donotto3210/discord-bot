@@ -404,3 +404,8 @@ client.on('interactionCreate', async interaction => {
 });
 
 client.login(TOKEN);
+
+client.on('ready', () => {
+  console.log(`Logged in as ${client.user.tag}!`);
+});
+
