@@ -8,9 +8,9 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
-const TOKEN = process.env.TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
-const GUILD_ID = process.env.GUILD_ID;
+const TOKEN = 'MTM5NjI3MjUzNzMzNTUwMDk0MA.GhQ4ak.0ksaQt9FMphmDj-myr1Oe552UjLkn06dHGQH0Y';
+const CLIENT_ID = '1396272537335500940';
+const GUILD_ID = '1396270596383313980';
 
 const LOG_FILE = 'logs.json';
 const ALLY_FILE = 'alliances.json';
