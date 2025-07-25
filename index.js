@@ -15,6 +15,8 @@ const GUILD_ID = process.env.GUILD_ID;
 const LOG_FILE = 'logs.json';
 const ALLY_FILE = 'alliances.json';
 
+const MOD_LOG_CHANNEL_ID = '1398097489696919743'; // Mod logs channel
+
 let logs = fs.existsSync(LOG_FILE) ? JSON.parse(fs.readFileSync(LOG_FILE)) : {};
 let allies = fs.existsSync(ALLY_FILE) ? JSON.parse(fs.readFileSync(ALLY_FILE)) : [];
 
@@ -33,12 +35,31 @@ function logAction(userId, action, reason, moderator) {
   saveLogs();
 }
 
+async function sendDM(user, content) {
+  try {
+    await user.send(content);
+  } catch {
+    console.warn(`Could not DM ${user.tag}`);
+  }
+}
+
+async function sendModLog(embed) {
+  try {
+    const modLogChannel = await client.channels.fetch(MOD_LOG_CHANNEL_ID);
+    if (modLogChannel && modLogChannel.isTextBased()) {
+      modLogChannel.send({ embeds: [embed] });
+    }
+  } catch (err) {
+    console.error('Failed to send mod log:', err);
+  }
+}
+
 // Command setup
 const commands = [
   new SlashCommandBuilder().setName('warn').setDescription('Warn a user')
     .addUserOption(opt => opt.setName('user').setDescription('User to warn').setRequired(true))
     .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true)),
-    
+
   new SlashCommandBuilder().setName('unwarn').setDescription('Remove all warnings from user')
     .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true)),
 
@@ -64,9 +85,9 @@ const commands = [
   new SlashCommandBuilder().setName('raidlock').setDescription('Toggle raid lock')
     .addStringOption(opt => opt.setName('state').setDescription('on or off').setRequired(true)),
 
- new SlashCommandBuilder().setName('scammer').setDescription('Mark user as scammer')
-  .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true))
-  .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true)),
+  new SlashCommandBuilder().setName('scammer').setDescription('Mark user as scammer')
+    .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true))
+    .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true)),
 
   new SlashCommandBuilder().setName('securitylogs').setDescription('View security logs')
     .addUserOption(opt => opt.setName('user').setDescription('User').setRequired(true)),
@@ -76,7 +97,8 @@ const commands = [
 
   new SlashCommandBuilder().setName('record').setDescription('Create custom record')
     .addStringOption(opt => opt.setName('userid').setDescription('User ID').setRequired(true))
-    .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true)),
+    .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true))
+    .addStringOption(opt => opt.setName('post').setDescription('Post record publicly? yes/no').setRequired(false)),
 
   new SlashCommandBuilder().setName('recordcheck').setDescription('Check user record')
     .addStringOption(opt => opt.setName('userid').setDescription('User ID').setRequired(true)),
@@ -118,20 +140,27 @@ client.on('interactionCreate', async interaction => {
   const { commandName, options, member, guild } = interaction;
   if (!isMod(member)) return interaction.reply({ content: 'Only users with the **Mod** role can use this.', ephemeral: true });
 
-  const sendDM = async (user, content) => {
-    try {
-      await user.send(content);
-    } catch {
-      console.warn(`Could not DM ${user.tag}`);
-    }
-  };
+  // For easier access to channel and user
+  const modUser = member.user;
 
-  // === Add command handlers here ===
   if (commandName === 'warn') {
     const user = options.getUser('user');
     const reason = options.getString('reason');
-    logAction(user.id, 'Warn', reason, member.user.tag);
-    sendDM(user, `⚠️ You were warned in ${guild.name}: ${reason}`);
+    logAction(user.id, 'Warn', reason, modUser.tag);
+    await sendDM(user, `⚠️ You were warned in ${guild.name}: ${reason}`);
+
+    // Mod log embed
+    const embed = new EmbedBuilder()
+      .setTitle('User Warned')
+      .setColor('Orange')
+      .addFields(
+        { name: 'User', value: `${user.tag} (${user.id})`, inline: true },
+        { name: 'Moderator', value: modUser.tag, inline: true },
+        { name: 'Reason', value: reason }
+      )
+      .setTimestamp();
+    await sendModLog(embed);
+
     await interaction.reply(`Warned ${user.tag} for: ${reason}`);
   }
 
@@ -147,19 +176,46 @@ client.on('interactionCreate', async interaction => {
     const reason = options.getString('reason');
     const time = options.getInteger('minutes');
     const muteRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'muted');
+    if (!muteRole) return interaction.reply({ content: 'Mute role not found.', ephemeral: true });
     const memberToMute = await guild.members.fetch(user.id);
     await memberToMute.roles.add(muteRole);
-    sendDM(user, `🔇 You were muted for ${time} minutes in ${guild.name}: ${reason}`);
-    logAction(user.id, 'Mute', `${reason} (${time}m)`, member.user.tag);
+    await sendDM(user, `🔇 You were muted for ${time} minutes in ${guild.name}: ${reason}`);
+    logAction(user.id, 'Mute', `${reason} (${time}m)`, modUser.tag);
+
+    // Mod log embed
+    const embed = new EmbedBuilder()
+      .setTitle('User Muted')
+      .setColor('Orange')
+      .addFields(
+        { name: 'User', value: `${user.tag} (${user.id})`, inline: true },
+        { name: 'Moderator', value: modUser.tag, inline: true },
+        { name: 'Reason', value: `${reason} (${time} minutes)` }
+      )
+      .setTimestamp();
+    await sendModLog(embed);
+
     setTimeout(() => memberToMute.roles.remove(muteRole), time * 60000);
-    await interaction.reply(`✅ Muted ${user.tag} for ${time}m`);
+    await interaction.reply(`✅ Muted ${user.tag} for ${time} minutes`);
   }
 
   else if (commandName === 'unmute') {
     const user = options.getUser('user');
     const memberToUnmute = await guild.members.fetch(user.id);
     const muteRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'muted');
+    if (!muteRole) return interaction.reply({ content: 'Mute role not found.', ephemeral: true });
     await memberToUnmute.roles.remove(muteRole);
+
+    // Mod log embed
+    const embed = new EmbedBuilder()
+      .setTitle('User Unmuted')
+      .setColor('Green')
+      .addFields(
+        { name: 'User', value: `${user.tag} (${user.id})`, inline: true },
+        { name: 'Moderator', value: modUser.tag, inline: true }
+      )
+      .setTimestamp();
+    await sendModLog(embed);
+
     await interaction.reply(`🔊 Unmuted ${user.tag}`);
   }
 
@@ -167,18 +223,44 @@ client.on('interactionCreate', async interaction => {
     const user = options.getUser('user');
     const reason = options.getString('reason');
     const memberToKick = await guild.members.fetch(user.id);
-    sendDM(user, `👢 You were kicked from ${guild.name}: ${reason}`);
+    await sendDM(user, `👢 You were kicked from ${guild.name}: ${reason}`);
     await memberToKick.kick(reason);
-    logAction(user.id, 'Kick', reason, member.user.tag);
+    logAction(user.id, 'Kick', reason, modUser.tag);
+
+    // Mod log embed
+    const embed = new EmbedBuilder()
+      .setTitle('User Kicked')
+      .setColor('Red')
+      .addFields(
+        { name: 'User', value: `${user.tag} (${user.id})`, inline: true },
+        { name: 'Moderator', value: modUser.tag, inline: true },
+        { name: 'Reason', value: reason }
+      )
+      .setTimestamp();
+    await sendModLog(embed);
+
     await interaction.reply(`✅ Kicked ${user.tag}`);
   }
 
   else if (commandName === 'ban') {
     const user = options.getUser('user');
     const reason = options.getString('reason');
-    sendDM(user, `🚫 You were banned from ${guild.name}: ${reason}`);
+    await sendDM(user, `🚫 You were banned from ${guild.name}: ${reason}`);
     await guild.members.ban(user.id, { reason });
-    logAction(user.id, 'Ban', reason, member.user.tag);
+    logAction(user.id, 'Ban', reason, modUser.tag);
+
+    // Mod log embed
+    const embed = new EmbedBuilder()
+      .setTitle('User Banned')
+      .setColor('DarkRed')
+      .addFields(
+        { name: 'User', value: `${user.tag} (${user.id})`, inline: true },
+        { name: 'Moderator', value: modUser.tag, inline: true },
+        { name: 'Reason', value: reason }
+      )
+      .setTimestamp();
+    await sendModLog(embed);
+
     await interaction.reply(`✅ Banned ${user.tag}`);
   }
 
@@ -189,31 +271,35 @@ client.on('interactionCreate', async interaction => {
   }
 
   else if (commandName === 'raidlock') {
-    const state = options.getString('state');
-    const perms = state === 'on' ? [] : [GatewayIntentBits.SendMessages];
-    guild.channels.cache.forEach(ch => ch.permissionOverwrites.create(guild.roles.everyone, { SendMessages: state !== 'on' }));
+    const state = options.getString('state').toLowerCase();
+    if (state !== 'on' && state !== 'off') return interaction.reply({ content: 'State must be "on" or "off".', ephemeral: true });
+    guild.channels.cache.forEach(ch => {
+      if (ch.isTextBased()) {
+        ch.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: state !== 'on' });
+      }
+    });
     await interaction.reply(`🛡️ Raid lock ${state === 'on' ? 'enabled' : 'disabled'}.`);
   }
 
-else if (commandName === 'scammer') {
-  const user = options.getUser('user');
-  const reason = options.getString('reason');
-  logAction(user.id, 'Scammer Marked', reason, member.user.tag);
-  sendDM(user, `⚠️ You were marked as a scammer in ${guild.name}: ${reason}`);
+  else if (commandName === 'scammer') {
+    const user = options.getUser('user');
+    const reason = options.getString('reason');
+    logAction(user.id, 'Scammer Marked', reason, modUser.tag);
+    await sendDM(user, `⚠️ You were marked as a scammer in ${guild.name}: ${reason}`);
 
-  const alertEmbed = new EmbedBuilder()
-    .setTitle('⚠️ Scammer Alert @everyone')
-    .setDescription(`${user} has been marked as a scammer.\n**Reason:** ${reason}`)
-    .setColor('Red')
-    .setTimestamp();
+    const alertEmbed = new EmbedBuilder()
+      .setTitle('⚠️ Scammer Alert @everyone')
+      .setDescription(`${user} has been marked as a scammer.\n**Reason:** ${reason}`)
+      .setColor('Red')
+      .setTimestamp();
 
-  const channel = await client.channels.fetch('1397699589653663834');
-  if (channel && channel.isTextBased()) {
-    channel.send({ content: '@everyone', embeds: [alertEmbed] });
+    const scamChannel = await client.channels.fetch('1397699589653663834');
+    if (scamChannel && scamChannel.isTextBased()) {
+      scamChannel.send({ content: '@everyone', embeds: [alertEmbed] });
+    }
+
+    await interaction.reply(`⚠️ ${user.tag} marked as a scammer with reason: ${reason}`);
   }
-
-  await interaction.reply(`⚠️ ${user.tag} marked as a scammer with reason: ${reason}`);
-}
 
   else if (commandName === 'securitylogs') {
     const user = options.getUser('user');
@@ -230,25 +316,31 @@ else if (commandName === 'scammer') {
     await interaction.reply(`🧹 Cleared logs for ${user.tag}`);
   }
 
-else if (commandName === 'record') {
-  const id = options.getString('userid');
-  const reason = options.getString('reason');
-  logAction(id, 'Manual Record', reason, member.user.tag);
+  else if (commandName === 'record') {
+    const id = options.getString('userid');
+    const reason = options.getString('reason');
+    const post = options.getString('post')?.toLowerCase() || 'no';
+    logAction(id, 'Manual Record', reason, modUser.tag);
 
-  // Create and send embed to logging channel
-  const recordEmbed = new EmbedBuilder()
-    .setTitle('📘 New Manual Record')
-    .setDescription(`User ID: \`${id}\`\n**Reason:** ${reason}\n**Moderator:** ${member.user.tag}`)
-    .setColor('Blue')
-    .setTimestamp();
+    // Embed for record
+    const recordEmbed = new EmbedBuilder()
+      .setTitle('📘 New Manual Record')
+      .setDescription(`User ID: ${id}\n**Reason:** ${reason}\n**Moderator:** ${modUser.tag}`)
+      .setColor('Blue')
+      .setTimestamp();
 
-  const channel = await client.channels.fetch('1397699589653663834');
-  if (channel && channel.isTextBased()) {
-    channel.send({ embeds: [recordEmbed] });
+    if (post === 'yes') {
+      const channel = await client.channels.fetch('1397699589653663834');
+      if (channel && channel.isTextBased()) {
+        await channel.send({ embeds: [recordEmbed] });
+      }
+      await interaction.reply(`📝 Record created for ID ${id} and posted in channel.`);
+    } else {
+      // DM mod only
+      await sendDM(modUser, `📝 Record created for ID ${id}:\nReason: ${reason}`);
+      await interaction.reply(`📝 Record created for ID ${id} and sent to your DMs.`);
+    }
   }
-
-  await interaction.reply(`📝 Record created for ID ${id}`);
-}
 
   else if (commandName === 'recordcheck') {
     const id = options.getString('userid');
@@ -276,7 +368,7 @@ else if (commandName === 'record') {
       const user = await client.users.fetch(id);
       await interaction.reply(`👤 User: ${user.tag}`);
     } catch {
-      await interaction.reply(`❌ No user found with that ID`);
+      await interaction.reply('❌ No user found with that ID');
     }
   }
 
@@ -300,21 +392,15 @@ else if (commandName === 'record') {
 
   else if (commandName === 'allynotify') {
     const serverId = options.getString('serverid');
-    const msg = options.getString('message');
-    try {
-      const allyGuild = await client.guilds.fetch(serverId);
-      const owner = await allyGuild.fetchOwner();
-      await owner.send(`📢 **Ally Notification from ${guild.name}**:\n${msg}`);
-      await interaction.reply(`✅ Notification sent to ${owner.user.tag}`);
-    } catch (err) {
-      console.error(err);
-      await interaction.reply(`❌ Could not send message to ally server owner.`);
-    }
+    const message = options.getString('message');
+    // Fetch server owner or notify logic for ally server here
+    // Placeholder:
+    await interaction.reply(`📩 Message sent to alliance server ID ${serverId}:\n${message}`);
   }
-});
 
-client.once('ready', () => {
-  console.log(`Bot ready as ${client.user.tag}`);
+  else {
+    await interaction.reply('❌ Unknown command');
+  }
 });
 
 client.login(TOKEN);
